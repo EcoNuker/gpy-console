@@ -1,21 +1,19 @@
 from setuptools import setup
 
 setup(
-    name="discord.py-Console",
+    name="guilded.py-Console",
     version="0.1.2",
     description="Executes commands from console while your bot is running.",
     long_description=open("README.md").read(),
-    url="https://github.com/Mihitoko/discord.py-Console",
+    url="https://github.com/EcoNuker/guilded.py-Console",
     long_description_content_type="text/markdown",
-    author="Mihito",
+    author="YumYummity",
     license="MIT",
-    classifiers=[
-        "Programming Language :: Python :: 3.7"
-    ],
-    packages=["dpyConsole"],
+    classifiers=["Programming Language :: Python :: 3.7"],
+    packages=["gpyConsole"],
+    # install_requires = [
+    #     "google-re2"
+    # ],
     include_package_data=True,
-    extras_require={
-        "py-cord": ["py-cord"],
-        "discord.py": ["discord.py"]
-    }
+    extras_require={"gil.py": ["gil.py"], "guilded.py": ["guilded.py"]},
 )

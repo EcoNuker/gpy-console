@@ -12,7 +12,9 @@ async def on_ready():
 
 
 @console.command()
-async def hey(user: discord.User):  # Library automatically converts type annotations, just like in discord.py
+async def hey(
+    user: discord.User,
+):  # Library automatically converts type annotations, just like in discord.py
     """
     Library can handle both synchronous or asynchronous functions
     """

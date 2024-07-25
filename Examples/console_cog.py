@@ -10,8 +10,10 @@ class ConsoleCog(Cog):
 
     @console.command()
     async def cog_test(self, user: discord.User):
-        await user.send("Hello from Console \n"
-                        f"This command operates in a Cog and my name is {self.console.client.user.name}")
+        await user.send(
+            "Hello from Console \n"
+            f"This command operates in a Cog and my name is {self.console.client.user.name}"
+        )
 
 
 def setup(console):

@@ -3,14 +3,16 @@ import sys
 from asyncio import Future
 from inspect import iscoroutinefunction
 import asyncio
-from dpyConsole.converter import Converter
+from gpyConsole.converter import Converter
 import inspect
 import logging
 import traceback
 import shlex
 import threading
 
-from dpyConsole.errors import CommandNotFound, ExtensionError
+import guilded
+
+from gpyConsole import errors
 
 logger = logging.getLogger("dpyConsole")
 
@@ -21,7 +23,7 @@ class Console:
     It also holds the converter in
     """
 
-    def __init__(self, client, **kwargs):
+    def __init__(self, client: guilded.Client, **kwargs):
         self.client = client
         self.input = kwargs.get("input", sys.stdin)
         self.out = kwargs.get("out", sys.stdout)
@@ -43,15 +45,17 @@ class Console:
 
     def load_extension(self, path):
         """
-        Loads an extension just like in discord.py
+        Loads an extension just like in guilded.py
         :param path:
         :return:
         """
         if path in self.__extensions:
-            raise ExtensionError(f"Extension {path} already loaded")
+            raise errors.ExtensionError(f"Extension {path} already loaded")
         module = importlib.import_module(path)
         # noinspection PyUnresolvedReferences
-        module.setup(self)
+        module.setup(
+            self
+        )  # NOTE: no modifications here, but in discord.py this is async
         self.__extensions.update({path: module})
 
     def unload_extension(self, path):
@@ -61,8 +65,8 @@ class Console:
         :return:
         """
         module = self.__extensions.pop(path, None)
-        if module is None: # raise if ext is not loaded
-            raise ExtensionError(f"This extension is not loaded ({path})")
+        if module is None:  # raise if ext is not loaded
+            raise errors.ExtensionError(f"This extension is not loaded ({path})")
         for name, cog in self.__cogs.copy().items():
             if _is_submodule(module.__name__, cog.__module__):
                 self.remove_console_cog(name)
@@ -73,7 +77,7 @@ class Console:
         module = self.__extensions.get(path, None)
         sys.modules.pop(module.__name__, None)
         if module is None:
-            raise ExtensionError(f"This extension is not loaded ({path})")
+            raise errors.ExtensionError(f"This extension is not loaded ({path})")
         old_modules = {}
         cached = []
         """
@@ -110,22 +114,26 @@ class Console:
                     command = self.__commands__.get(console_in[0], None)
 
                     if not command:
-                        raise CommandNotFound(console_in[0])
+                        exc = errors.CommandNotFound(
+                            f'Command "{console_in[0]}" is not found'
+                        )
+                        raise exc
 
                     if len(command.__subcommands__) == 0:
                         self.prepare(command, console_in[1:])
                     else:
                         try:
-                            sub_command = command.__subcommands__.get(console_in[1], None)
+                            sub_command = command.__subcommands__.get(
+                                console_in[1], None
+                            )
                         except IndexError:
                             sub_command = None
                         if not sub_command:
                             self.prepare(command, console_in[1:])
                             continue
                         self.prepare(sub_command, console_in[2:])
-
-                except (IndexError, KeyError):
-                    traceback.print_exc()
+                except errors.CommandError as exc:
+                    self.client.dispatch("console_command_error", exc)
             except Exception:
                 traceback.print_exc()
 
@@ -153,11 +161,7 @@ class Console:
         return decorator
 
     def add_command(self, command):
-        self.__commands__.update(
-            {
-                command.name: command
-            }
-        )
+        self.__commands__.update({command.name: command})
 
     def remove_command(self, command):
         self.__commands__.pop(command.name, None)
@@ -208,9 +212,7 @@ class Command:
         :param command:
         :return:
         """
-        self.__subcommands__.update(
-            {command.name: command}
-        )
+        self.__subcommands__.update({command.name: command})
 
     def invoke(self, args, loop: asyncio.AbstractEventLoop = None):
         """
@@ -220,6 +222,7 @@ class Command:
         :return:
         """
         if loop:
+
             def done_callback(future: Future):
                 error = future.exception()
                 if error:
