@@ -16,8 +16,8 @@ so you can **use your Bot in the terminal/console** and run Guilded commands as 
 ### Usage and Example
 ----------
 
-The implementation is similar to the regular commands in discord.py.
-Just implement the discord.py-Console like this:
+The implementation is similar to the regular commands in guilded.py.
+Just implement the guilded.py-console like this:
 
 ```python
 import discord

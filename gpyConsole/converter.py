@@ -19,6 +19,7 @@ class Converter:
             bool: self.bool_converter,
             # guilded.User: self.user_converter,
             int: self.int_converter,
+            str: self.str_converter,
             guilded.Server: self.server_converter,
         }
 
@@ -44,6 +45,9 @@ class Converter:
     #                 return user
     #         else:
     #             raise TypeError(f"Cannot convert {param} to User")
+
+    def str_converter(self, param):
+        return param
 
     def int_converter(self, param):
         try:
