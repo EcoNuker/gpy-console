@@ -9,7 +9,7 @@ from aioconsole import ainput
 import guilded
 from guilded import ClientFeatures
 from guilded.ext import commands
-from guilded.ext.commands.core import Check
+from guilded.ext.commands.core import Group, Command
 from guilded.ext.commands.bot import BotBase, HelpCommand, _default, StringView
 from guilded.utils import MISSING
 
@@ -49,7 +49,7 @@ class ConsoleMixin:
         # description: Optional[str] = None,
         **options: Any,
     ):
-        self.input: TextIO = options.get("input", sys.stdin)
+        # self.input: TextIO = options.get("input", sys.stdin)
         self.out: TextIO = options.get("out", sys.stdout)
         self.prompt: str = prompt
 
@@ -67,6 +67,7 @@ class ConsoleMixin:
         }
 
         self._console_running = False
+        self.console_stop_flag = False
 
     @property
     def console_commands(self):
@@ -75,7 +76,7 @@ class ConsoleMixin:
     @property
     def _console_commands_by_alias(self):
         aliases = {}
-        for command in self._console_commands:
+        for command in self.console_commands:
             aliases = {**{alias: command for alias in command.aliases}, **aliases}
         return aliases
 
@@ -98,12 +99,10 @@ class ConsoleMixin:
             registered.
         """
         if command.name in self._console_commands.keys():
-            raise errors.ConsoleCommandRegistrationError(
-                f"A console command with the name {command.name} is already registered."
-            )
+            raise errors.ConsoleCommandRegistrationError(command.name)
         elif command.name in self._console_commands_by_alias.keys():
             raise errors.ConsoleCommandRegistrationError(
-                f"A console command with the alias {command.name} is already registered."
+                command.name, alias_conflict=True
             )
         self._console_commands[command.name] = command
 
@@ -185,6 +184,8 @@ class ConsoleMixin:
         def decorator(coro):
             if isinstance(coro, ConsoleCommand):
                 raise TypeError("Function is already a console command.")
+            if isinstance(coro, Command):
+                raise TypeError("Function is already a normal command.")
             kwargs["name"] = kwargs.get("name", name)
             command = cls(coro, **kwargs)
             self.add_console_command(command)
@@ -200,7 +201,9 @@ class ConsoleMixin:
     ):
         def decorator(coro):
             if isinstance(coro, ConsoleGroup):
-                raise TypeError("Function is already a group.")
+                raise TypeError("Function is already a console group.")
+            if isinstance(coro, Group):
+                raise TypeError("Function is already a normal group.")
             kwargs["name"] = kwargs.get("name", name)
             command = cls(coro, **kwargs)
             self.add_console_command(command)
@@ -239,6 +242,9 @@ class ConsoleMixin:
         view = StringView(message)
         ctx = cls(view=view, bot=self, message=message)
 
+        invoker = view.get_word()
+        ctx.invoked_with = invoker
+        ctx.command = self.all_console_commands.get(invoker)
         return ctx
 
     async def console_invoke(self, ctx: Context) -> None:
@@ -274,7 +280,7 @@ class ConsoleMixin:
         invoke this coroutine as well.
 
         This is built using other low level tools, and is equivalent to a call
-        to :meth:`.get_context` followed by a call to :meth:`.invoke`.
+        to :meth:`.get_console_context` followed by a call to :meth:`.console_invoke`.
 
         Parameters
         -----------
@@ -320,14 +326,33 @@ class ConsoleMixin:
         Console starts listening for inputs using aioconsole ainputs.
         """
         logger.info("Console is ready and is listening for commands\n")
+
         while True:
+            if self.console_stop_flag:
+                self.console_stop_flag = False
+                logger.info(
+                    "Console was stopped and is no longer listening for commands\n"
+                )
+                break
             try:
+                # Get input from the user
                 console_in = (await ainput(self.prompt)).strip()
+
                 if len(console_in) == 0:
                     continue
                 self.dispatch("console_message", console_in)
             except Exception:
                 traceback.print_exc()
+
+        self._console_running = False
+
+    def stop_console(self):
+        """
+        Stops the console listener.
+
+        The console listener will still accept one more command afterwards as the stop is not immediate.
+        """
+        self.console_stop_flag = True
 
     def start_console(self):
         """

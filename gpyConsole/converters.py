@@ -206,9 +206,7 @@ class UserConverter(GenericIDConverter[guilded.User]):
             result = self.find_user_named(bot, argument)
         else:
             user_id = match.group(1)
-            result = bot.get_user(user_id) or _utils_get(
-                ctx.message.mentions, id=user_id
-            )
+            result = bot.get_user(user_id)
 
         if result is None:
             if user_id is not None:

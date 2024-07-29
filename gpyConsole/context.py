@@ -8,14 +8,15 @@ from guilded.ext.commands.core import Cog
 
 if TYPE_CHECKING:
     from .core import ConsoleCommand
-    from . import ConsoleBot
+    from . import ConsoleBot, ConsoleClient
     from guilded.ext.commands.view import StringView
 
 
 class Context(abc.ConsoleMessageable):
     def __init__(self, **attrs):
         self.message: str = attrs.pop("message", None)
-        self.bot: ConsoleBot = attrs.pop("bot", None)
+        self.bot: Union[ConsoleBot, ConsoleClient] = attrs.pop("bot", None)
+        self.client = self.bot
         self.args: List[Any] = attrs.pop("args", [])
         self.kwargs: Dict[str, Any] = attrs.pop("kwargs", {})
         self.command: Optional[ConsoleCommand] = attrs.pop("command", None)
@@ -27,6 +28,9 @@ class Context(abc.ConsoleMessageable):
         )
         self.subcommand_passed: Optional[str] = attrs.pop("subcommand_passed", None)
         self.command_failed: bool = attrs.pop("command_failed", False)
+
+        self.server: None = None
+        self.channel: None = None
 
     def __repr__(self) -> str:
         return f"<Context message={self.message}>"

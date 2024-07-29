@@ -3,3 +3,4 @@ dist
 gpy_Console.egg-info
 build
 .vscode
+__pycache__

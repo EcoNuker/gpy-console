@@ -13,7 +13,7 @@ if not version:
     raise RuntimeError("Version is not set.")
 
 setup(
-    name="guilded.py-console",
+    name="gpy-console",
     version="0.0.2",
     description="Execute your bot's commands from the console!",
     long_description=open("README.md", encoding="utf8").read(),

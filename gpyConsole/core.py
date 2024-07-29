@@ -6,11 +6,12 @@ import datetime
 import functools
 import inspect
 import typing
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Union, TypeVar
+from typing import Any, Callable, Dict, List, Optional, Union, TypeVar
 
 from .errors import *
 from .context import Context
 from .converters import Greedy, get_converter, run_converters
+from .cog import ConsoleCog
 
 import guilded
 
@@ -22,9 +23,6 @@ from guilded.ext.commands.cooldowns import (
     MaxConcurrency,
 )
 from guilded.ext.commands._types import _BaseCommand, Check, CoroFunc
-
-if TYPE_CHECKING:
-    from typing_extensions import Self
 
 
 __all__ = (
@@ -129,7 +127,7 @@ class ConsoleCommand(_BaseCommand):
         self.ignore_extra = kwargs.get("ignore_extra", True)
         self.cooldown_after_parsing = kwargs.get("cooldown_after_parsing", False)
         self.cog = None
-        self.aliases = kwargs.get("aliases", [])
+        self.aliases: List = kwargs.get("aliases", [])
 
         if not isinstance(self.aliases, (list, tuple)):
             if isinstance(self.aliases, str):
@@ -601,7 +599,7 @@ class ConsoleCommand(_BaseCommand):
 
         # call the cog local hook if applicable:
         if cog is not None:
-            hook = Cog._get_overridden_method(cog.cog_before_invoke)
+            hook = ConsoleCog._get_overridden_method(cog.cog_before_invoke)
             if hook is not None:
                 await hook(ctx)
 
@@ -621,7 +619,7 @@ class ConsoleCommand(_BaseCommand):
 
         # call the cog local hook if applicable:
         if cog is not None:
-            hook = Cog._get_overridden_method(cog.cog_after_invoke)
+            hook = ConsoleCog._get_overridden_method(cog.cog_after_invoke)
             if hook is not None:
                 await hook(ctx)
 
@@ -629,40 +627,16 @@ class ConsoleCommand(_BaseCommand):
         if hook is not None:
             await hook(ctx)
 
-    def _prepare_cooldowns(self, ctx: Context) -> None:
-        if self._buckets.valid:
-            dt = ctx.message.updated_at or ctx.message.created_at
-            current = dt.replace(tzinfo=datetime.timezone.utc).timestamp()
-            bucket = self._buckets.get_bucket(ctx, current)
-            if bucket is not None:
-                retry_after = bucket.update_rate_limit(current)
-                if retry_after:
-                    raise CommandOnCooldown(bucket, retry_after, self._buckets.type)  # type: ignore
-
     async def prepare(self, ctx: Context):
         ctx.command = self
 
         if not await self.can_run(ctx):
-            raise CheckFailure(
+            raise ConsoleCheckFailure(
                 f"The check functions for command {self.qualified_name} failed."
             )
 
-        if self._max_concurrency is not None:
-            await self._max_concurrency.acquire(ctx)
-
-        try:
-            if self.cooldown_after_parsing:
-                await self._parse_arguments(ctx)
-                self._prepare_cooldowns(ctx)
-            else:
-                self._prepare_cooldowns(ctx)
-                await self._parse_arguments(ctx)
-
-            await self.call_before_hooks(ctx)
-        except:
-            if self._max_concurrency is not None:
-                await self._max_concurrency.release(ctx)
-            raise
+        await self._parse_arguments(ctx)
+        await self.call_before_hooks(ctx)
 
     def is_on_cooldown(self, ctx: Context, /) -> bool:
         """Checks whether the command is currently on cooldown.
@@ -680,32 +654,23 @@ class ConsoleCommand(_BaseCommand):
             A boolean indicating if the command is on cooldown.
         """
 
-        if not self._buckets.valid:
-            return False
+        return False
 
-        bucket = self._buckets.get_bucket(ctx)
-        if bucket is None:
-            return False
+    # def reset_cooldown(self, ctx: Context, /) -> None:
+    #     """Resets the cooldown on this command.
 
-        dt = ctx.message.updated_at or ctx.message.created_at
-        current = dt.replace(tzinfo=datetime.timezone.utc).timestamp()
-        return bucket.get_tokens(current) == 0
+    #     .. versionadded:: 1.5
 
-    def reset_cooldown(self, ctx: Context, /) -> None:
-        """Resets the cooldown on this command.
+    #     Parameters
+    #     -----------
+    #     ctx: :class:`.Context`
+    #         The invocation context to reset the cooldown under.
+    #     """
 
-        .. versionadded:: 1.5
-
-        Parameters
-        -----------
-        ctx: :class:`.Context`
-            The invocation context to reset the cooldown under.
-        """
-
-        if self._buckets.valid:
-            bucket = self._buckets.get_bucket(ctx)
-            if bucket is not None:
-                bucket.reset()
+    #     if self._buckets.valid:
+    #         bucket = self._buckets.get_bucket(ctx)
+    #         if bucket is not None:
+    #             bucket.reset()
 
     def get_cooldown_retry_after(self, ctx: Context, /) -> float:
         """Retrieves the amount of seconds before this command can be tried again.
@@ -723,15 +688,6 @@ class ConsoleCommand(_BaseCommand):
             The amount of time left on this command's cooldown in seconds.
             If this is ``0.0`` then the command isn't on cooldown.
         """
-
-        if self._buckets.valid:
-            bucket = self._buckets.get_bucket(ctx)
-            if bucket is None:
-                return 0.0
-
-            dt = ctx.message.updated_at or ctx.message.created_at
-            current = dt.replace(tzinfo=datetime.timezone.utc).timestamp()
-            return bucket.get_retry_after(current)
 
         return 0.0
 
@@ -814,20 +770,20 @@ class ConsoleCommand(_BaseCommand):
         """
 
         if not self.enabled:
-            raise DisabledCommand(f"{self.name} command is disabled")
+            raise ConsoleDisabledCommand(f"{self.name} command is disabled")
 
         original = ctx.command
         ctx.command = self
 
         try:
             if not await ctx.bot.can_run(ctx):
-                raise CheckFailure(
+                raise ConsoleCheckFailure(
                     f"The global check functions for command {self.qualified_name} failed."
                 )
 
             cog = self.cog
             if cog is not None:
-                local_check = Cog._get_overridden_method(cog.cog_check)
+                local_check = ConsoleCog._get_overridden_method(cog.cog_check)
                 if local_check is not None:
                     ret = await guilded.utils.maybe_coroutine(local_check, ctx)
                     if not ret:
@@ -1070,8 +1026,8 @@ class ConsoleGroup(ConsoleCommand):
 
         return command
 
-    def walk_commands(self) -> typing.Generator[ConsoleCommand, None, None]:
-        """An iterator that recursively walks through all commands and subcommands.
+    def walk_console_commands(self) -> typing.Generator[ConsoleCommand, None, None]:
+        """An iterator that recursively walks through all console commands and subcommands.
 
         Yields
         -------
@@ -1372,7 +1328,7 @@ def before_invoke(coro) -> Callable[[T], T]:
         async def who(ctx): # Output: <User> used who at <Time>
             await ctx.send('i am a bot')
 
-        class What(commands.Cog):
+        class What(console_commands.ConsoleCog):
 
             @commands.before_invoke(record_usage)
             @commands.command()
@@ -1463,7 +1419,6 @@ def cooldown(
 
 def dynamic_cooldown(
     cooldown: Callable[[Context[Any]], Optional[Cooldown]],
-    type: Union[BucketType, Callable[[Context[Any]], Any]],
 ) -> Callable[[T], T]:
     """A decorator that adds a dynamic cooldown to a :class:`.ConsoleCommand`
 
@@ -1473,13 +1428,10 @@ def dynamic_cooldown(
     If ``None`` is returned then that cooldown is effectively bypassed.
 
     A cooldown allows a command to only be used a specific amount
-    of times in a specific time frame. These cooldowns can be based
-    either on a per-guild, per-channel, per-user, per-role or global basis.
-    Denoted by the third argument of ``type`` which must be of enum
-    type :class:`.BucketType`.
+    of times in a specific time frame. These cooldowns can be based on only the console.
 
-    If a cooldown is triggered, then :exc:`.CommandOnCooldown` is triggered in
-    :func:`.on_command_error` and the local error handler.
+    If a cooldown is triggered, then :exc:`.ConsoleCommandOnCooldown` is triggered in
+    :func:`.on_console_command_error` and the local error handler.
 
     A command can only have a single cooldown.
 
@@ -1497,24 +1449,21 @@ def dynamic_cooldown(
     if not callable(cooldown):
         raise TypeError("A callable must be provided")
 
-    if type is BucketType.default:
-        raise ValueError("BucketType.default cannot be used in dynamic cooldowns")
-
     def decorator(
         func: Union[ConsoleCommand, CoroFunc]
     ) -> Union[ConsoleCommand, CoroFunc]:
         if isinstance(func, ConsoleCommand):
             func._buckets = DynamicCooldownMapping(cooldown, type)
         else:
-            func.__commands_cooldown__ = DynamicCooldownMapping(cooldown, type)
+            func.__commands_cooldown__ = DynamicCooldownMapping(
+                cooldown, BucketType.server
+            )
         return func
 
     return decorator  # type: ignore
 
 
-def max_concurrency(
-    number: int, per: BucketType = BucketType.default, *, wait: bool = False
-) -> Callable[[T], T]:
+def max_concurrency(number: int, *, wait: bool = False) -> Callable[[T], T]:
     """A decorator that adds a maximum concurrency to a :class:`.ConsoleCommand` or its subclasses.
 
     This enables you to only allow a certain number of command invocations at the same time,
@@ -1528,9 +1477,6 @@ def max_concurrency(
     -------------
     number: :class:`int`
         The maximum number of invocations of this command that can be running at the same time.
-    per: :class:`.BucketType`
-        The bucket that this concurrency is based on, e.g. ``BucketType.server`` would allow
-        it to be used up to ``number`` times per server.
     wait: :class:`bool`
         Whether the command should wait for the queue to be over. If this is set to ``False``
         then instead of waiting until the command can run again, the command raises
@@ -1541,7 +1487,7 @@ def max_concurrency(
     def decorator(
         func: Union[ConsoleCommand, CoroFunc]
     ) -> Union[ConsoleCommand, CoroFunc]:
-        value = MaxConcurrency(number, per=per, wait=wait)
+        value = MaxConcurrency(number, per=BucketType.server, wait=wait)
         if isinstance(func, ConsoleCommand):
             func._max_concurrency = value
         else:

@@ -21,18 +21,20 @@ Just implement the gpy-console like this:
 
 ```python
 import guilded
-from gpyConsole import ConsoleBot
+from gpyConsole import ConsoleClient
 from gpyConsole.context import Context
 
-client = ConsoleBot(
-    command_prefix="!",
+client = ConsoleClient(
     features=guilded.ClientFeatures(official_markdown=True),
 )
 
 
 @client.event
+@bot.event
 async def on_ready():
-    print(f"Logged in as {client.user}")
+    print(f"Logged in as {bot.user}")
+    if not bot._console_running:
+        bot.start_console()
 
 
 @client.console_command()
@@ -41,14 +43,12 @@ async def hey(
     channel: guilded.ChatChannel,
     user: guilded.User,
 ):  # Library automatically converts type annotations, just like in guilded.py
-    # Missing converters: guilded.Role, guilded.Member, guilded.ChatMessage
+    # Missing converters: guilded.Role, guilded.Member, guilded.ChatMessage, guilded.Attachments
     await ctx.reply(f"Sending message to {user.name} (id: {user.id})")
     await channel.send(
         f"Hello from Console! I'm {client.user.name}, and you are {user.mention}"
     )
 
-
-client.start_console()  # Starts console listener
 client.run(
     "gapi_token"
 )
@@ -59,3 +59,35 @@ To execute the mentioned command run ``hey <valid_channel_id> <valid_user_id>``.
 ## `🔗` Links
 
 *No links currently*
+
+# gpyConsole: things to know
+
+The console has to be started manually. Try something like this:
+```python
+@bot.event
+async def on_ready():
+    print(f"Logged in as {bot.user}")
+    if not bot._console_running:
+        bot.start_console()
+```
+
+### Missing Converters
+Any converter that relies on the local server will not be available. This includes:
+- guilded.Role
+- guilded.Member
+- guilded.ChatMessage
+- guilded.Attachment
+
+### New Events
+New events were added that are accessible like any other guilded.py event.
+- `on_console_command_completion`
+- `on_console_command`
+- `on_console_command_error`
+- `on_console_message`
+
+### You can stop the console
+
+```python
+if bot._console_running:
+    bot.stop_console()
+```
