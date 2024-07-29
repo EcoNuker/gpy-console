@@ -1,6 +1,6 @@
 # `⌨️` Guilded.py console
 >[!NOTE]
-> Guilded.py console is a fork of [Discord.py Console](https://github.com/Mihitoko/discord.py-Console/) and uses its source code.
+> Guilded.py console is a fork of [Discord.py Console](https://github.com/Mihitoko/discord.py-Console/) but has been completely rewritten. The only file that uses `discord.py-Console`'s source code is `__init__.py`
 
 Guilded.py console is a CLI for your Guilded.py bot, with Guilded.py console you can run commands right from your console!
 

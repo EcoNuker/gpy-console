@@ -72,6 +72,4 @@ async def hi(ctx: commands.Context):
     await ctx.send(f"Hello {ctx.author.mention}!")
 
 
-bot.run(
-    "gapi_token"
-)
+bot.run("gapi_token")
