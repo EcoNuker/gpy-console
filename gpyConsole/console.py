@@ -1,4 +1,4 @@
-import sys, types, threading, traceback, logging, inspect, asyncio
+import sys, threading, traceback, logging
 
 from .core import ConsoleCommand, ConsoleGroup
 from . import errors

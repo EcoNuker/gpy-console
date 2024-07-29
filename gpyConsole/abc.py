@@ -1,8 +1,9 @@
 import abc
+from typing import Union, TYPE_CHECKING
 
-from .console import ConsoleBot, ConsoleClient
-
-from typing import Union
+# Avoid direct import to prevent circular dependency issues
+if TYPE_CHECKING:
+    from .console import ConsoleBot, ConsoleClient
 
 
 class ConsoleMessageable(metaclass=abc.ABCMeta):
