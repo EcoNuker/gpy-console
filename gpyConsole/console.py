@@ -336,7 +336,7 @@ class ConsoleMixin:
         This is a blocking call.
         """
         self._console_running = True
-        asyncio.create_task(self._on_console)
+        asyncio.create_task(self._on_console())
 
 
 class ConsoleClient(guilded.Client, ConsoleMixin):
