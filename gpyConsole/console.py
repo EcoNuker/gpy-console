@@ -62,18 +62,6 @@ class ConsoleMixin:
             "on_console_command_error": self.on_console_command_error,
         }
 
-        self._extend_listeners()
-
-    def _extend_listeners(self):
-        """
-        Extend or modify the original listeners.
-        """
-        original_listeners = getattr(self, "_listeners", {})
-
-        combined_listeners = {**original_listeners, **self._console_listeners}
-
-        self._listeners = combined_listeners
-
     @property
     def console_commands(self):
         return list(self._console_commands.values())
@@ -367,6 +355,9 @@ class ConsoleClient(guilded.Client, ConsoleMixin):
             self, console_help_command=console_help_command, **options
         )
 
+        for listener, func in self._console_listeners.items():
+            self._listeners[listener] = func
+
 
 class ConsoleBot(commands.Bot, ConsoleMixin):
     def __init__(
@@ -397,3 +388,6 @@ class ConsoleBot(commands.Bot, ConsoleMixin):
         ConsoleMixin.__init__(
             self, console_help_command=console_help_command, **options
         )
+
+        for listener, func in self._console_listeners.items():
+            self._listeners[listener] = func

@@ -13,6 +13,11 @@ async def on_ready():
     print(f"Logged in as {client.user}")
 
 
+@client.event
+async def on_console_message(message: str):
+    print(f"Received command: {message}")
+
+
 @client.console_command()
 async def hey(
     ctx: Context,  # Modified Console Context with less features (.reply and .send are the same)
