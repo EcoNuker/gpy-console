@@ -12,11 +12,14 @@ bot = ConsoleBot(
 @bot.event
 async def on_ready():
     print(f"Logged in as {bot.user}")
+    if not bot._console_running:
+        bot.start_console()
 
 
 @bot.event
 async def on_console_message(message: str):
     print(f"Received command: {message}")
+    await bot.process_console_commands(message)
 
 
 @bot.console_command()
@@ -31,11 +34,11 @@ async def hey(
         f"Hello from Console! I'm {bot.user.name}, and you are {user.mention}"
     )
 
+
 @bot.command()
-async def hi(
-    ctx: commands.Context
-):
+async def hi(ctx: commands.Context):
     await ctx.send(f"Hello {ctx.author.mention}!")
+
 
 bot.run(
     "gapi_g3ApoXCAoHXpEda7YvyU2KPHLepbBxHHIv0sdA7nnkJ5Gt353rFuDlWq8RdlYmer9C58jaTCXKjPjtcCcBLwgA=="
