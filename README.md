@@ -22,12 +22,12 @@ Just implement the gpy-console like this:
 ```python
 import guilded
 from gpyConsole import ConsoleClient
-from gpyConsole.context import Context
+from gpyConsole import console_commands
 
 client = ConsoleClient(
     features=guilded.ClientFeatures(official_markdown=True),
 )
-
+# can also do "bot = ConsoleBot", see tests/test.py
 
 @client.event
 @bot.event
@@ -39,7 +39,7 @@ async def on_ready():
 
 @client.console_command()
 async def hey(
-    ctx: Context,  # Modified Console Context with less features (.reply and .send are the same)
+    ctx: console_commands.Context,  # Modified Console Context with less features (.reply and .send are the same)
     channel: guilded.ChatChannel,
     user: guilded.User,
 ):  # Library automatically converts type annotations, just like in guilded.py
