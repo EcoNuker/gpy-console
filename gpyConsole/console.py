@@ -66,8 +66,6 @@ class ConsoleMixin:
             "on_console_command_error": self.on_console_command_error,
         }
 
-        asyncio.create_task(self._on_console())
-
     @property
     def console_commands(self):
         return list(self._console_commands.values())
@@ -328,6 +326,10 @@ class ConsoleMixin:
                 self.dispatch("console_message", console_in)
             except Exception:
                 traceback.print_exc()
+
+    async def start(self, token: str = None, *, reconnect: bool = True) -> None:
+        await super().start(token=token, reconnect=reconnect)
+        asyncio.create_task(self._on_console())
 
 
 class ConsoleClient(guilded.Client, ConsoleMixin):
