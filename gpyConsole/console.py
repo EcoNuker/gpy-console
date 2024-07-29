@@ -249,7 +249,7 @@ class ConsoleMixin:
 
     async def console_invoke(self, ctx: Context) -> None:
         if ctx.command is not None:
-            super().dispatch("console_command", ctx)
+            self.dispatch("console_command", ctx)
             try:
                 if await self.can_run(ctx, call_once=True):
                     await ctx.command.invoke(ctx)
@@ -258,15 +258,15 @@ class ConsoleMixin:
                         "The global check once functions failed."
                     )
             except errors.ConsoleCommandError as exc:
-                super().dispatch("console_command_error", ctx, exc)
+                self.dispatch("console_command_error", ctx, exc)
                 # await ctx.command.dispatch_error(ctx, exc)
             else:
-                super().dispatch("console_command_completion", ctx)
+                self.dispatch("console_command_completion", ctx)
         elif ctx.invoked_with:
             exc = errors.ConsoleCommandNotFound(
                 f'Console command "{ctx.invoked_with}" is not found'
             )
-            super().dispatch("console_command_error", ctx, exc)
+            self.dispatch("console_command_error", ctx, exc)
 
     async def process_console_commands(self, message: str):
         """|coro|
@@ -333,7 +333,7 @@ class ConsoleMixin:
                 console_in = self.input.read().strip()
                 if len(console_in) == 0:
                     continue
-                super().dispatch("console_message", console_in)
+                self.dispatch("console_message", console_in)
             except Exception:
                 traceback.print_exc()
 
