@@ -1,6 +1,6 @@
 import abc
 
-from . import ConsoleBot, ConsoleClient
+from .console import ConsoleBot, ConsoleClient
 
 from typing import Union
 
