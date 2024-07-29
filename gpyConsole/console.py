@@ -46,7 +46,6 @@ class ConsoleMixin:
         # description: Optional[str] = None,
         **options: Any,
     ):
-        super().__init__(**options)
         self.input: TextIO = options.get("input", sys.stdin)
         self.out: TextIO = options.get("out", sys.stdout)
 
