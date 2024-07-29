@@ -1,7 +1,6 @@
 import abc
 from typing import Union, TYPE_CHECKING
 
-# Avoid direct import to prevent circular dependency issues
 if TYPE_CHECKING:
     from .console import ConsoleBot, ConsoleClient
 
@@ -14,7 +13,7 @@ class ConsoleMessageable(metaclass=abc.ABCMeta):
         * :class:`.ext.commands.Context`
     """
 
-    def __init__(self, *, client: Union[ConsoleClient, ConsoleBot]):
+    def __init__(self, *, client: Union["ConsoleClient", "ConsoleBot"]):
         self.client = client
         self.server: None = None
         self.channel: None = None
