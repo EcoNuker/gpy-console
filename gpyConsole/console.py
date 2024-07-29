@@ -354,6 +354,7 @@ class ConsoleClient(guilded.Client, ConsoleMixin):
         internal_server_id: Optional[str] = None,
         max_messages: Optional[int] = MISSING,
         features: Optional[ClientFeatures] = None,
+        console_help_command: Optional[HelpCommand] = _default,  # type: ignore
         **options,
     ):
         guilded.Client.__init__(
@@ -363,7 +364,9 @@ class ConsoleClient(guilded.Client, ConsoleMixin):
             features=features,
             **options,
         )
-        ConsoleMixin.__init__(self, **options)
+        ConsoleMixin.__init__(
+            self, console_help_command=console_help_command, **options
+        )
 
 
 class ConsoleBot(commands.Bot, ConsoleMixin):
@@ -376,6 +379,7 @@ class ConsoleBot(commands.Bot, ConsoleMixin):
         ],
         *,
         help_command: Optional[HelpCommand] = _default,  # type: ignore
+        console_help_command: Optional[HelpCommand] = _default,  # type: ignore
         description: Optional[str] = None,
         owner_id: Optional[str] = None,
         owner_ids: Optional[List[str]] = None,
@@ -391,4 +395,6 @@ class ConsoleBot(commands.Bot, ConsoleMixin):
             owner_ids=owner_ids,
             **options,
         )
-        ConsoleMixin.__init__(self, **options)
+        ConsoleMixin.__init__(
+            self, console_help_command=console_help_command, **options
+        )
