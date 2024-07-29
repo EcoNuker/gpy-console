@@ -50,7 +50,7 @@ def hooked_wrapped_callback(command, ctx, coro):
     async def wrapped(*args, **kwargs):
         try:
             ret = await coro(*args, **kwargs)
-        except CommandError:
+        except ConsoleCommandError:
             ctx.command_failed = True
             raise
         except asyncio.CancelledError:
@@ -58,7 +58,7 @@ def hooked_wrapped_callback(command, ctx, coro):
             return
         except Exception as exc:
             ctx.command_failed = True
-            raise CommandInvokeError(exc) from exc
+            raise ConsoleCommandInvokeError(exc) from exc
         finally:
             if command._max_concurrency is not None:
                 await command._max_concurrency.release(ctx)
@@ -89,27 +89,6 @@ class _CaseInsensitiveDict(dict):
         super().__setitem__(k.casefold(), v)
 
 
-class _AttachmentIterator:
-    def __init__(self, data: List[guilded.Attachment]):
-        self.data: List[guilded.Attachment] = data
-        self.index: int = 0
-
-    def __iter__(self) -> Self:
-        return self
-
-    def __next__(self) -> guilded.Attachment:
-        try:
-            value = self.data[self.index]
-        except IndexError:
-            raise StopIteration
-        else:
-            self.index += 1
-            return value
-
-    def is_empty(self) -> bool:
-        return self.index >= len(self.data)
-
-
 class ConsoleCommand(_BaseCommand):
     _before_invoke = None
     _after_invoke = None
@@ -129,7 +108,7 @@ class ConsoleCommand(_BaseCommand):
 
         name = kwargs.get("name") or coro.__name__
         if not isinstance(name, str):
-            raise TypeError("Command name must be a string.")
+            raise TypeError("ConsoleCommand name must be a string.")
         self.name = name
         self.callback = coro
 
@@ -158,7 +137,9 @@ class ConsoleCommand(_BaseCommand):
                 # this may be reverted later if people attempt to pass multiple aliases in one string
                 self.aliases = [self.aliases]
             else:
-                raise TypeError("Command aliases must be a list or a tuple of strings.")
+                raise TypeError(
+                    "ConsoleCommand aliases must be a list or a tuple of strings."
+                )
 
         self.description = inspect.cleandoc(kwargs.get("description", ""))
         self.hidden = kwargs.get("hidden", False)
@@ -202,7 +183,7 @@ class ConsoleCommand(_BaseCommand):
             self.after_invoke(after_invoke)
 
         parent = kwargs.get("parent")
-        self.parent = parent if isinstance(parent, Command) else None
+        self.parent = parent if isinstance(parent, ConsoleCommand) else None
 
     @property
     def callback(self):
@@ -238,7 +219,7 @@ class ConsoleCommand(_BaseCommand):
         """
         entries = []
         command = self
-        # command.parent is type-hinted as Group some attributes are resolved via MRO
+        # command.parent is type-hinted as ConsoleGroup some attributes are resolved via MRO
         while command.parent is not None:  # type: ignore
             command = command.parent  # type: ignore
             entries.append(command.name)  # type: ignore
@@ -247,7 +228,7 @@ class ConsoleCommand(_BaseCommand):
 
     @property
     def parents(self):
-        """List[:class:`Group`]: Retrieves the parents of this command.
+        """List[:class:`ConsoleGroup`]: Retrieves the parents of this command.
 
         If the command has no parents then it returns an empty :class:`list`.
 
@@ -263,7 +244,7 @@ class ConsoleCommand(_BaseCommand):
 
     @property
     def root_parent(self):
-        """Optional[:class:`Group`]: Retrieves the root parent of this command.
+        """Optional[:class:`ConsoleGroup`]: Retrieves the root parent of this command.
 
         If the command has no parents then it returns ``None``.
 
@@ -433,7 +414,7 @@ class ConsoleCommand(_BaseCommand):
             try:
                 argument = view.get_quoted_word()
                 value = await run_converters(ctx, converter, argument, param)  # type: ignore
-            except (CommandError, ArgumentParsingError):
+            except (ConsoleCommandError, ConsoleArgumentParsingError):
                 view.index = previous
                 break
             else:
@@ -451,15 +432,13 @@ class ConsoleCommand(_BaseCommand):
         try:
             argument = view.get_quoted_word()
             value = await run_converters(ctx, converter, argument, param)  # type: ignore
-        except (CommandError, ArgumentParsingError):
+        except (ConsoleCommandError, ConsoleArgumentParsingError):
             view.index = previous
             raise RuntimeError() from None  # break loop
         else:
             return value
 
-    async def transform(
-        self, ctx: Context, param: inspect.Parameter, attachments: _AttachmentIterator
-    ):
+    async def transform(self, ctx: Context, param: inspect.Parameter):
         required = param.default is param.empty
         converter = get_converter(param)
         consume_rest_is_special = (
@@ -471,10 +450,6 @@ class ConsoleCommand(_BaseCommand):
         # The greedy converter is simple -- it keeps going until it fails in which case,
         # it undos the view ready for the next parameter to use instead
         if isinstance(converter, Greedy):
-            # Special case to consume the entire attachments list in the case of Greedy[Attachment]
-            if converter.converter is guilded.Attachment:
-                return list(attachments)
-
             if param.kind in (param.POSITIONAL_OR_KEYWORD, param.POSITIONAL_ONLY):
                 return await self._transform_greedy_pos(
                     ctx, param, required, converter.converter
@@ -489,29 +464,13 @@ class ConsoleCommand(_BaseCommand):
                 # into just X and do the parsing that way.
                 converter = converter.converter
 
-        if converter is guilded.Attachment:
-            try:
-                return next(attachments)
-            except StopIteration:
-                raise MissingRequiredAttachment(param)
-
-        if (
-            self._is_typing_optional(param.annotation)
-            and param.annotation.__args__[0] is guilded.Attachment
-        ):
-            if attachments.is_empty():
-                # I have no idea who would be doing Optional[Attachment] = 1
-                # but for those cases then 1 should be returned instead of None
-                return None if param.default is param.empty else param.default
-            return next(attachments)
-
         if view.eof:
             if param.kind == param.VAR_POSITIONAL:
                 raise RuntimeError()  # break the loop
             if required:
                 if self._is_typing_optional(param.annotation):
                     return None
-                raise MissingRequiredArgument(param)
+                raise ConsoleMissingRequiredArgument(param)
             return param.default
 
         previous = view.index
@@ -528,7 +487,6 @@ class ConsoleCommand(_BaseCommand):
         ctx.kwargs = {}
         args = ctx.args
         kwargs = ctx.kwargs
-        attachments = _AttachmentIterator(ctx.message.attachments)
 
         view = ctx.view
         iterator = iter(self.params.items())
@@ -551,7 +509,7 @@ class ConsoleCommand(_BaseCommand):
 
         for name, param in iterator:
             if param.kind in (param.POSITIONAL_OR_KEYWORD, param.POSITIONAL_ONLY):
-                transformed = await self.transform(ctx, param, attachments)
+                transformed = await self.transform(ctx, param)
                 args.append(transformed)
 
             elif param.kind == param.KEYWORD_ONLY:
@@ -561,15 +519,15 @@ class ConsoleCommand(_BaseCommand):
                     argument = view.read_rest()
                     kwargs[name] = await run_converters(ctx, converter, argument, param)
                 else:
-                    kwargs[name] = await self.transform(ctx, param, attachments)
+                    kwargs[name] = await self.transform(ctx, param)
                 break
 
             elif param.kind == param.VAR_POSITIONAL:
                 if view.eof and self.require_var_positional:
-                    raise MissingRequiredArgument(param)
+                    raise ConsoleMissingRequiredArgument(param)
                 while not view.eof:
                     try:
-                        transformed = await self.transform(ctx, param, attachments)
+                        transformed = await self.transform(ctx, param)
                         args.append(transformed)
                     except RuntimeError:
                         break
@@ -600,7 +558,7 @@ class ConsoleCommand(_BaseCommand):
 
         Returns
         --------
-        :class:`Command`
+        :class:`ConsoleCommand`
             A new instance of this command.
         """
         ret = self.__class__(self.callback, **self.__original_kwargs__)
@@ -835,7 +793,7 @@ class ConsoleCommand(_BaseCommand):
         """|coro|
 
         Checks if the command can be executed by checking all the predicates
-        inside the :attr:`~Command.checks` attribute. This also checks whether the
+        inside the :attr:`~ConsoleCommand.checks` attribute. This also checks whether the
         command is disabled.
 
         Parameters
@@ -901,7 +859,7 @@ def console_command(name: str = None, cls=ConsoleCommand, **kwargs):
     name: :class:`str`
         The name to create the command with. By default this uses the function name unchanged.
     cls
-        The class to construct with. By default this is :class:`.Command`. You usually do not change this.
+        The class to construct with. By default this is :class:`.ConsoleCommand`. You usually do not change this.
     attrs
         Keyword arguments to pass into the construction of the class denoted by ``cls``.
 
@@ -928,8 +886,8 @@ class ConsoleGroup(ConsoleCommand):
     """A class that implements a grouping protocol for commands to be executed
     as subcommands.
 
-    This class is a subclass of :class:`.Command` and thus all options valid
-    for :class:`.Command` are valid for this as well.
+    This class is a subclass of :class:`.ConsoleCommand` and thus all options valid
+    for :class:`.ConsoleCommand` are valid for this as well.
 
     Attributes
     -----------
@@ -954,7 +912,7 @@ class ConsoleGroup(ConsoleCommand):
 
     @property
     def commands(self) -> set:
-        """Set[:class:`.Command`]: A unique set of commands without aliases that are registered."""
+        """Set[:class:`.ConsoleCommand`]: A unique set of commands without aliases that are registered."""
         return set(self.all_commands.values())
 
     def copy(self):
@@ -1040,15 +998,15 @@ class ConsoleGroup(ConsoleCommand):
             view.previous = previous
             await super().reinvoke(ctx, call_hooks=call_hooks)
 
-    def add_command(self, command: Command) -> None:
-        """Adds a :class:`.Command` into the internal list of commands.
+    def add_command(self, command: ConsoleCommand) -> None:
+        """Adds a :class:`.ConsoleCommand` into the internal list of commands.
 
         This is usually not called, instead the :meth:`~.ConsoleGroup.command` or
         :meth:`~.ConsoleGroup.group` shortcut decorators are used instead.
 
         Parameters
         -----------
-        command: :class:`.Command`
+        command: :class:`.ConsoleCommand`
             The command to add.
 
         Raises
@@ -1056,13 +1014,13 @@ class ConsoleGroup(ConsoleCommand):
         :exc:`.CommandRegistrationError`
             If the command or its alias is already registered by different command.
         TypeError
-            If the command passed is not a subclass of :class:`.Command`.
+            If the command passed is not a subclass of :class:`.ConsoleCommand`.
         """
 
-        if not isinstance(command, Command):
-            raise TypeError("The command passed must be a subclass of Command")
+        if not isinstance(command, ConsoleCommand):
+            raise TypeError("The command passed must be a subclass of ConsoleCommand")
 
-        if isinstance(self, Command):
+        if isinstance(self, ConsoleCommand):
             command.parent = self
 
         if command.name in self.all_commands:
@@ -1075,8 +1033,8 @@ class ConsoleGroup(ConsoleCommand):
                 raise CommandRegistrationError(alias, alias_conflict=True)
             self.all_commands[alias] = command
 
-    def remove_command(self, name: str) -> typing.Optional[Command]:
-        """Remove a :class:`.Command` from the internal list of commands.
+    def remove_command(self, name: str) -> typing.Optional[ConsoleCommand]:
+        """Remove a :class:`.ConsoleCommand` from the internal list of commands.
 
         This could also be used as a way to remove aliases.
 
@@ -1087,7 +1045,7 @@ class ConsoleGroup(ConsoleCommand):
 
         Returns
         --------
-        Optional[:class:`.Command`]
+        Optional[:class:`.ConsoleCommand`]
             The command that was removed. If the name is not valid then
             ``None`` is returned instead.
         """
@@ -1112,12 +1070,12 @@ class ConsoleGroup(ConsoleCommand):
 
         return command
 
-    def walk_commands(self) -> typing.Generator[Command, None, None]:
+    def walk_commands(self) -> typing.Generator[ConsoleCommand, None, None]:
         """An iterator that recursively walks through all commands and subcommands.
 
         Yields
         -------
-        Union[:class:`.Command`, :class:`.ConsoleGroup`]
+        Union[:class:`.ConsoleCommand`, :class:`.ConsoleGroup`]
             A command or group from the internal list of commands.
         """
         for command in self.commands:
@@ -1125,8 +1083,8 @@ class ConsoleGroup(ConsoleCommand):
             if isinstance(command, ConsoleGroup):
                 yield from command.walk_commands()
 
-    def get_command(self, name: str) -> typing.Optional[Command]:
-        """Get a :class:`.Command` from the internal list
+    def get_command(self, name: str) -> typing.Optional[ConsoleCommand]:
+        """Get a :class:`.ConsoleCommand` from the internal list
         of commands.
 
         This could also be used as a way to get aliases.
@@ -1142,7 +1100,7 @@ class ConsoleGroup(ConsoleCommand):
 
         Returns
         --------
-        Optional[:class:`Command`]
+        Optional[:class:`ConsoleCommand`]
             The command that was requested. If not found, returns ``None``.
         """
 

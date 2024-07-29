@@ -19,7 +19,7 @@ async def hey(
     channel: guilded.ChatChannel,
     user: guilded.User,
 ):  # Library automatically converts type annotations, just like in guilded.py
-    # Missing converters: guilded.Role, guilded.Member, guilded.ChatMessage
+    # Missing converters: guilded.Role, guilded.Member, guilded.ChatMessage, guilded.Attachment
     await ctx.reply(f"Sending message to {user.name} (id: {user.id})")
     await channel.send(
         f"Hello from Console! I'm {client.user.name}, and you are {user.mention}"
