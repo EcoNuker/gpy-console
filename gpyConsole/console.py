@@ -328,8 +328,8 @@ class ConsoleMixin:
                 traceback.print_exc()
 
     async def start(self, token: str = None, *, reconnect: bool = True) -> None:
-        await super().start(token=token, reconnect=reconnect)
         asyncio.create_task(self._on_console())
+        await super().start(token=token, reconnect=reconnect)
 
 
 class ConsoleClient(guilded.Client, ConsoleMixin):
