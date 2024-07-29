@@ -13,7 +13,7 @@ if not version:
     raise RuntimeError("Version is not set.")
 
 setup(
-    name="guilded.py-Console",
+    name="guilded.py-console",
     version="0.0.2",
     description="Execute your bot's commands from the console!",
     long_description=open("README.md", encoding="utf8").read(),
@@ -23,7 +23,7 @@ setup(
     license="MIT",
     classifiers=["Programming Language :: Python :: 3.7"],
     packages=["gpyConsole"],
-    install_requires=["google-re2", "typing"],
+    install_requires=["google-re2", "typing", "aioconsole"],
     include_package_data=True,
     extras_require={"gil.py": ["gil.py"], "guilded.py": ["guilded.py"]},
 )

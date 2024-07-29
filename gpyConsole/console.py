@@ -4,6 +4,8 @@ from .core import ConsoleCommand, ConsoleGroup
 from . import errors
 from .context import Context
 
+from aioconsole import ainput
+
 import guilded
 from guilded import ClientFeatures
 from guilded.ext import commands
@@ -43,11 +45,13 @@ class ConsoleMixin:
         self,
         *args,
         console_help_command: Optional[HelpCommand] = _default,  # type: ignore
+        prompt: str = "> ",
         # description: Optional[str] = None,
         **options: Any,
     ):
         self.input: TextIO = options.get("input", sys.stdin)
         self.out: TextIO = options.get("out", sys.stdout)
+        self.prompt: str = prompt
 
         self._console_commands = {}
         self._console_help_command = None
@@ -61,6 +65,8 @@ class ConsoleMixin:
             "on_console_message": self.on_console_message,
             "on_console_command_error": self.on_console_command_error,
         }
+
+        asyncio.create_task(self._on_console())
 
     @property
     def console_commands(self):
@@ -311,17 +317,12 @@ class ConsoleMixin:
 
     async def _on_console(self):
         """
-        Console starts listening for inputs, using asyncio StreamReader
+        Console starts listening for inputs using aioconsole ainputs.
         """
         logger.info("Console is ready and is listening for commands\n")
-        loop = asyncio.get_event_loop()
-        reader = asyncio.StreamReader()
-        protocol = asyncio.StreamReaderProtocol(reader)
-        await loop.connect_read_pipe(lambda: protocol, self.input)
-
         while True:
             try:
-                console_in = (await reader.readline()).strip()
+                console_in = (await ainput(self.prompt)).strip()
                 if len(console_in) == 0:
                     continue
                 self.dispatch("console_message", console_in)
@@ -337,6 +338,7 @@ class ConsoleClient(guilded.Client, ConsoleMixin):
         max_messages: Optional[int] = MISSING,
         features: Optional[ClientFeatures] = None,
         console_help_command: Optional[HelpCommand] = _default,  # type: ignore
+        prompt: str = "> ",
         **options,
     ):
         guilded.Client.__init__(
@@ -347,7 +349,7 @@ class ConsoleClient(guilded.Client, ConsoleMixin):
             **options,
         )
         ConsoleMixin.__init__(
-            self, console_help_command=console_help_command, **options
+            self, console_help_command=console_help_command, prompt=prompt, **options
         )
 
         for listener, func in self._console_listeners.items():
@@ -365,6 +367,7 @@ class ConsoleBot(commands.Bot, ConsoleMixin):
         *,
         help_command: Optional[HelpCommand] = _default,  # type: ignore
         console_help_command: Optional[HelpCommand] = _default,  # type: ignore
+        prompt: str = "> ",
         description: Optional[str] = None,
         owner_id: Optional[str] = None,
         owner_ids: Optional[List[str]] = None,
@@ -381,7 +384,7 @@ class ConsoleBot(commands.Bot, ConsoleMixin):
             **options,
         )
         ConsoleMixin.__init__(
-            self, console_help_command=console_help_command, **options
+            self, console_help_command=console_help_command, prompt=prompt, **options
         )
 
         for listener, func in self._console_listeners.items():
