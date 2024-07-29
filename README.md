@@ -85,6 +85,9 @@ New events were added that are accessible like any other guilded.py event.
 - `on_console_command_error`
 - `on_console_message`
 
+### Console Cogs
+All cogs should be replaced with a ConsoleCog; it implements guilded.py's Cog feature so it will work the same.
+
 ### You can stop the console
 
 ```python

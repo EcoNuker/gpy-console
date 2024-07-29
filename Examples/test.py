@@ -73,5 +73,5 @@ async def hi(ctx: commands.Context):
 
 
 bot.run(
-    "gapi_g3ApoXCAoHXpEda7YvyU2KPHLepbBxHHIv0sdA7nnkJ5Gt353rFuDlWq8RdlYmer9C58jaTCXKjPjtcCcBLwgA=="
+    "gapi_token"
 )
