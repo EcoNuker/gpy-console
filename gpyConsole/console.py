@@ -1,4 +1,4 @@
-import sys, threading, traceback, logging
+import sys, asyncio, traceback, logging
 
 from .core import ConsoleCommand, ConsoleGroup
 from . import errors
@@ -309,29 +309,24 @@ class ConsoleMixin:
         else:
             self._help_command = None
 
-    def _on_console(self):
+    async def _on_console(self):
         """
-        Console starts listening for inputs.
-        This is a blocking call. To avoid the bot being stopped this has to run in an executor (New Thread)
-        :return:
+        Console starts listening for inputs, using asyncio StreamReader
         """
         logger.info("Console is ready and is listening for commands\n")
+        loop = asyncio.get_event_loop()
+        reader = asyncio.StreamReader()
+        protocol = asyncio.StreamReaderProtocol(reader)
+        await loop.connect_read_pipe(lambda: protocol, self.input)
+
         while True:
             try:
-                console_in = self.input.read().strip()
+                console_in = (await reader.readline()).strip()
                 if len(console_in) == 0:
                     continue
                 self.dispatch("console_message", console_in)
             except Exception:
                 traceback.print_exc()
-
-    def start_console(self):
-        """
-        Abstracts Thread initialization away from user.
-        :return:
-        """
-        thread = threading.Thread(None, self._on_console, daemon=True)
-        thread.start()
 
 
 class ConsoleClient(guilded.Client, ConsoleMixin):

@@ -31,7 +31,6 @@ async def hey(
     )
 
 
-client.start_console()  # Starts console listener
 client.run(
     "gapi_g3ApoXCAoHXpEda7YvyU2KPHLepbBxHHIv0sdA7nnkJ5Gt353rFuDlWq8RdlYmer9C58jaTCXKjPjtcCcBLwgA=="
 )
