@@ -16,7 +16,7 @@ setup(
     name="guilded.py-Console",
     version="0.0.2",
     description="Execute your bot's commands from the console!",
-    long_description=open("README.md").read(),
+    long_description=open("README.md", "utf-8").read(),
     url="https://github.com/EcoNuker/guilded.py-console",
     long_description_content_type="text/markdown",
     author="YumYummity",

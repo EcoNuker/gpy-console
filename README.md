@@ -21,10 +21,14 @@ Just implement the gpy-console like this:
 
 ```python
 import guilded
-from gpyConsole import ConsoleClient
+from gpyConsole import ConsoleBot
+from gpyConsole.context import Context
 
-client = guilded.Client(features=guilded.ClientFeatures(official_markdown = True))
-client = Console(client)
+client = ConsoleBot(
+    command_prefix="!",
+    features=guilded.ClientFeatures(official_markdown=True),
+)
+
 
 @client.event
 async def on_ready():
@@ -32,19 +36,24 @@ async def on_ready():
 
 
 @client.console_command()
-async def hey(user: str):  # Library automatically converts type annotations, just like in guilded.py
-    """
-    Library can handle both synchronous or asynchronous functions
-    """
-    user = await client.fetch_user(user)
-    print(f"Sending message to {user.name} id: = {user.id}")
-    await user.send(f"Hello from Console Im {client.user.name}")
+async def hey(
+    ctx: Context,  # Modified Console Context with less features (.reply and .send are the same)
+    channel: guilded.ChatChannel,
+    user: guilded.User,
+):  # Library automatically converts type annotations, just like in guilded.py
+    # Missing converters: guilded.Role, guilded.Member, guilded.ChatMessage
+    await ctx.reply(f"Sending message to {user.name} (id: {user.id})")
+    await channel.send(
+        f"Hello from Console! I'm {client.user.name}, and you are {user.mention}"
+    )
 
 
-client.start_console()
-client.run("gapi_token")
+client.start_console()  # Starts console listener
+client.run(
+    "gapi_token"
+)
 ```
-To execute the mentioned command run ``hey <valid_user_id>``.
+To execute the mentioned command run ``hey <valid_channel_id> <valid_user_id>``.
 
 
 ## `🔗` Links
