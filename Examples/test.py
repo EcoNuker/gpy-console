@@ -1,26 +1,32 @@
-import discord
-from dpyConsole import Console
+import guilded
+from gpyConsole import ConsoleBot
+from gpyConsole.context import Context
 
-client = discord.Client(intents=discord.Intents.all())
-console = Console(client)
-console.load_extension("console_cog")  # Loads extension (use doted path)
+client = ConsoleBot(
+    command_prefix="!",
+    features=guilded.ClientFeatures(official_markdown=True),
+)
 
 
 @client.event
 async def on_ready():
-    pass
+    print(f"Logged in as {client.user}")
 
 
-@console.command()
+@client.console_command()
 async def hey(
-    user: discord.User,
-):  # Library automatically converts type annotations, just like in discord.py
-    """
-    Library can handle both synchronous or asynchronous functions
-    """
-    print(f"Sending message to {user.name} id: = {user.id}")
-    await user.send("Hello from Console")
+    ctx: Context,  # Modified Console Context with less features (.reply and .send are the same)
+    channel: guilded.ChatChannel,
+    user: guilded.User,
+):  # Library automatically converts type annotations, just like in guilded.py
+    # Missing converters: guilded.Role, guilded.Member, guilded.ChatMessage
+    await ctx.reply(f"Sending message to {user.name} (id: {user.id})")
+    await channel.send(
+        f"Hello from Console! I'm {client.user.name}, and you are {user.mention}"
+    )
 
 
-console.start()
-client.run("Token")
+client.start_console()  # Starts console listener
+client.run(
+    "gapi_g3ApoXCAoHXpEda7YvyU2KPHLepbBxHHIv0sdA7nnkJ5Gt353rFuDlWq8RdlYmer9C58jaTCXKjPjtcCcBLwgA=="
+)

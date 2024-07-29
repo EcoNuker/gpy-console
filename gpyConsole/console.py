@@ -1,104 +1,328 @@
-import importlib
-import sys
-from asyncio import Future
-from inspect import iscoroutinefunction
-import asyncio
-from gpyConsole.converter import Converter
-import inspect
-import logging
-import traceback
-import shlex
-import threading
+import sys, types, threading, traceback, logging, inspect, asyncio
+
+from .core import ConsoleCommand, ConsoleGroup
+from . import errors
+from .context import Context
 
 import guilded
+from guilded import ClientFeatures
+from guilded.ext import commands
+from guilded.ext.commands.core import Check
+from guilded.ext.commands.bot import BotBase, HelpCommand, _default, StringView
+from guilded.utils import MISSING
 
-from gpyConsole import errors
+from typing import (
+    Optional,
+    List,
+    Union,
+    Any,
+    Iterable,
+    Callable,
+    Type,
+    TextIO,
+)
 
-logger = logging.getLogger("dpyConsole")
+logger = logging.getLogger("gpyConsole")
 
 
-class Console:
+class DefaultConsoleHelpCommand:  # TODO
+    def __init__(self):
+        pass
+
+
+# def _is_submodule(parent, child):
+#     return parent == child or child.startswith(parent + ".")
+
+
+class ConsoleMixin:
     """
-    Handles console input and Command invocations.
-    It also holds the converter in
+    Mixin class to add console features.
     """
 
-    def __init__(self, client: guilded.Client, **kwargs):
-        self.client = client
-        self.input = kwargs.get("input", sys.stdin)
-        self.out = kwargs.get("out", sys.stdout)
-        self.__commands__ = dict()
-        self.converter = kwargs.get("converter", Converter(client))
-        self.__extensions = {}
-        self.__cogs = {}
+    def __init__(
+        self,
+        *args,
+        console_help_command: Optional[HelpCommand] = _default,  # type: ignore
+        # description: Optional[str] = None,
+        **options: Any,
+    ):
+        super().__init__(**options)
+        self.input: TextIO = options.get("input", sys.stdin)
+        self.out: TextIO = options.get("out", sys.stdout)
 
-    def add_console_cog(self, obj):
-        if isinstance(obj, Cog):
-            self.__cogs.update({obj.__class__.__name__: obj})
-            obj.load(self)
+        self._console_commands = {}
+        self._console_help_command = None
+
+        if console_help_command is _default:
+            self._console_help_command = DefaultConsoleHelpCommand()
+        else:
+            self._console_help_command = console_help_command
+
+        self._console_listeners = {
+            "on_console_message": self.on_console_message,
+            "on_console_command_error": self.on_console_command_error,
+        }
+
+        self._extend_listeners()
+
+    def _extend_listeners(self):
+        """
+        Extend or modify the original listeners.
+        """
+        original_listeners = getattr(self, "_listeners", {})
+
+        combined_listeners = {**original_listeners, **self._console_listeners}
+
+        self._listeners = combined_listeners
+
+    @property
+    def console_commands(self):
+        return list(self._console_commands.values())
+
+    @property
+    def _console_commands_by_alias(self):
+        aliases = {}
+        for command in self._console_commands:
+            aliases = {**{alias: command for alias in command.aliases}, **aliases}
+        return aliases
+
+    @property
+    def all_console_commands(self):
+        return {**self._console_commands, **self._console_commands_by_alias}
+
+    def add_console_command(self, command: ConsoleCommand):
+        """Add a :class:`.ConsoleCommand` to the internal list of commands.
+
+        Parameters
+        -----------
+        command: :class:`.ConsoleCommand`
+            The command to register.
+
+        Raises
+        -------
+        ConsoleCommandRegistrationError
+            This command has a duplicate name or alias to one that is already
+            registered.
+        """
+        if command.name in self._console_commands.keys():
+            raise errors.ConsoleCommandRegistrationError(
+                f"A console command with the name {command.name} is already registered."
+            )
+        elif command.name in self._console_commands_by_alias.keys():
+            raise errors.ConsoleCommandRegistrationError(
+                f"A console command with the alias {command.name} is already registered."
+            )
+        self._console_commands[command.name] = command
+
+    def remove_console_command(self, name: str) -> Optional[ConsoleCommand]:
+        """Remove a :class:`.ConsoleCommand` from the internal list of commands.
+
+        This could also be used as a way to remove aliases.
+
+        Parameters
+        -----------
+        name: :class:`str`
+            The name of the command to remove.
+
+        Returns
+        --------
+        Optional[:class:`.ConsoleCommand`]
+            The command that was removed. If the name is not valid then
+            ``None`` is returned instead.
+        """
+        command = self._console_commands.pop(
+            name, self._console_commands_by_alias.get(name)
+        )
+
+        # does not exist
+        if command is None:
+            return None
+
+        if name in command.aliases:
+            # remove only this alias
+            command.aliases.remove(name)
+            return command
+
+        return command
+
+    def get_console_command(self, name: str) -> Optional[ConsoleCommand]:
+        """Get a :class:`.ConsoleCommand` from the internal list of commands.
+
+        This could also be used as a way to get aliases.
+
+        The name could be fully qualified (e.g. ``'foo bar'``) will get
+        the subcommand ``bar`` of the group command ``foo``. If a
+        subcommand is not found then ``None`` is returned just as usual.
+
+        Parameters
+        -----------
+        name: :class:`str`
+            The name of the command to get.
+
+        Returns
+        --------
+        Optional[:class:`.ConsoleCommand`]
+            The command that was requested. If not found, returns ``None``.
+        """
+        # fast path, no space in name.
+        if " " not in name:
+            return self.all_console_commands.get(name)
+
+        names = name.split()
+        if not names:
+            return None
+        obj = self.all_console_commands.get(names[0])
+        if not isinstance(obj, ConsoleGroup):
+            return obj
+
+        for name in names[1:]:
+            try:
+                obj = obj.all_commands[name]  # type: ignore
+            except (AttributeError, KeyError):
+                return None
+
+        return obj
+
+    def console_command(
+        self,
+        name: Optional[str] = None,
+        cls: Type = ConsoleCommand,
+        **kwargs: Any,
+    ):
+        def decorator(coro):
+            if isinstance(coro, ConsoleCommand):
+                raise TypeError("Function is already a console command.")
+            kwargs["name"] = kwargs.get("name", name)
+            command = cls(coro, **kwargs)
+            self.add_console_command(command)
+            return command
+
+        return decorator
+
+    def console_group(
+        self,
+        name: Optional[str] = None,
+        cls: Type = ConsoleGroup,
+        **kwargs: Any,
+    ):
+        def decorator(coro):
+            if isinstance(coro, ConsoleGroup):
+                raise TypeError("Function is already a group.")
+            kwargs["name"] = kwargs.get("name", name)
+            command = cls(coro, **kwargs)
+            self.add_console_command(command)
+            return command
+
+        return decorator
+
+    async def on_console_command_error(self, context: Context, exception):
+        """|coro|
+
+        The default console command error handler provided by the bot.
+
+        By default this prints to :data:`sys.stderr` however it could be
+        overridden to have a different implementation.
+
+        This only fires if you do not specify any listeners for console command error.
+        """
+        # TODO: implement this, for now it'll always fire
+        # if self.extra_events.get("on_console_command_error", None):
+        #     return
+
+        # command = context.command
+        # if command and command.has_error_handler():
+        #    return
+
+        cog = context.cog
+        if cog and cog.has_error_handler():
             return
-        raise Exception
 
-    def remove_console_cog(self, name):
-        cog = self.__cogs.pop(name, None)
-        cog.unload(self)
+        print(f"Ignoring exception in command {context.command}:", file=sys.stderr)
+        traceback.print_exception(
+            type(exception), exception, exception.__traceback__, file=sys.stderr
+        )
 
-    def load_extension(self, path):
+    async def get_console_context(self, message: str, /, *, cls=Context) -> Context:
+        view = StringView(message)
+        ctx = cls(view=view, bot=self, message=message)
+
+        return ctx
+
+    async def console_invoke(self, ctx: Context) -> None:
+        if ctx.command is not None:
+            super().dispatch("console_command", ctx)
+            try:
+                if await self.can_run(ctx, call_once=True):
+                    await ctx.command.invoke(ctx)
+                else:
+                    raise errors.ConsoleCheckFailure(
+                        "The global check once functions failed."
+                    )
+            except errors.ConsoleCommandError as exc:
+                super().dispatch("console_command_error", ctx, exc)
+                # await ctx.command.dispatch_error(ctx, exc)
+            else:
+                super().dispatch("console_command_completion", ctx)
+        elif ctx.invoked_with:
+            exc = errors.ConsoleCommandNotFound(
+                f'Console command "{ctx.invoked_with}" is not found'
+            )
+            super().dispatch("console_command_error", ctx, exc)
+
+    async def process_console_commands(self, message: str):
+        """|coro|
+
+        This function processes the commands that have been registered to the
+        bot and other groups. Without this coroutine, no commands will be
+        triggered.
+
+        By default, this coroutine is called inside the :func:`.on_console_message` event.
+        If you choose to override the :func:`.on_console_message` event, then you should
+        invoke this coroutine as well.
+
+        This is built using other low level tools, and is equivalent to a call
+        to :meth:`.get_context` followed by a call to :meth:`.invoke`.
+
+        Parameters
+        -----------
+        message: :class:`str`
+            The message to process commands for.
         """
-        Loads an extension just like in guilded.py
-        :param path:
-        :return:
-        """
-        if path in self.__extensions:
-            raise errors.ExtensionError(f"Extension {path} already loaded")
-        module = importlib.import_module(path)
-        # noinspection PyUnresolvedReferences
-        module.setup(
-            self
-        )  # NOTE: no modifications here, but in discord.py this is async
-        self.__extensions.update({path: module})
+        ctx = await self.get_console_context(message)
+        await self.console_invoke(ctx)
 
-    def unload_extension(self, path):
-        """
-        Unloads an extension
-        :param path:
-        :return:
-        """
-        module = self.__extensions.pop(path, None)
-        if module is None:  # raise if ext is not loaded
-            raise errors.ExtensionError(f"This extension is not loaded ({path})")
-        for name, cog in self.__cogs.copy().items():
-            if _is_submodule(module.__name__, cog.__module__):
-                self.remove_console_cog(name)
+    async def on_console_message(self, event: str):
+        """|coro|
 
-        sys.modules.pop(module.__name__, None)  # Remove "cached" module
+        The default handler for :func:`~.on_console_message` provided by the bot.
 
-    def reload_extension(self, path):
-        module = self.__extensions.get(path, None)
-        sys.modules.pop(module.__name__, None)
-        if module is None:
-            raise errors.ExtensionError(f"This extension is not loaded ({path})")
-        old_modules = {}
-        cached = []
+        If you are overriding this, remember to call :meth:`.process_commands`
+        or all commands will be ignored.
         """
-        Store old module state to fallback if exception occurs
-        """
-        for name, mod in sys.modules.items():
-            if _is_submodule(mod.__name__, path):
-                cached.append(mod)
-        old_modules.update({path: cached})
+        await self.process_console_commands(event)
 
-        try:
-            self.unload_extension(path)
-            self.load_extension(path)
-        except Exception:
-            #  Rollback
-            module.setup(self)
-            self.__extensions[path] = module
-            sys.modules.update(old_modules)
-            raise
+    # help command
 
-    def listen(self):
+    @property
+    def help_command(self) -> Optional[HelpCommand]:
+        return self._help_command
+
+    @help_command.setter
+    def help_command(self, value: Optional[HelpCommand]) -> None:
+        if value is not None:
+            if not isinstance(value, HelpCommand):
+                raise TypeError("help_command must be a subclass of HelpCommand")
+            if self._help_command is not None:
+                self._help_command._remove_from_bot(self)
+            self._help_command = value
+            value._add_to_bot(self)
+        elif self._help_command is not None:
+            self._help_command._remove_from_bot(self)
+            self._help_command = None
+        else:
+            self._help_command = None
+
+    def _on_console(self):
         """
         Console starts listening for inputs.
         This is a blocking call. To avoid the bot being stopped this has to run in an executor (New Thread)
@@ -107,200 +331,64 @@ class Console:
         logger.info("Console is ready and is listening for commands\n")
         while True:
             try:
-                console_in = shlex.split(self.input.readline())
+                console_in = self.input.read().strip()
                 if len(console_in) == 0:
                     continue
-                try:
-                    command = self.__commands__.get(console_in[0], None)
-
-                    if not command:
-                        exc = errors.CommandNotFound(
-                            f'Command "{console_in[0]}" is not found'
-                        )
-                        raise exc
-
-                    if len(command.__subcommands__) == 0:
-                        self.prepare(command, console_in[1:])
-                    else:
-                        try:
-                            sub_command = command.__subcommands__.get(
-                                console_in[1], None
-                            )
-                        except IndexError:
-                            sub_command = None
-                        if not sub_command:
-                            self.prepare(command, console_in[1:])
-                            continue
-                        self.prepare(sub_command, console_in[2:])
-                except errors.CommandError as exc:
-                    self.client.dispatch("console_command_error", exc)
+                super().dispatch("console_message", console_in)
             except Exception:
                 traceback.print_exc()
 
-    def prepare(self, command, args):
-        args_ = args.copy()
-        logger.info(f"Invoking command {command.name} with args {args}")
-        if getattr(command, "cog", None):
-            args_.insert(0, command.cog)
-
-        converted_args = command.convert(self.converter, args_)
-        if iscoroutinefunction(command.__callback__):
-            command.invoke(converted_args, loop=self.client.loop)
-        else:
-            command.invoke(converted_args)
-
-    def command(self, **kwargs):
-        cls = Command
-
-        def decorator(func):
-            name = kwargs.get("name", func.__name__)
-            command = cls(name, func)
-            self.add_command(command)
-            return command
-
-        return decorator
-
-    def add_command(self, command):
-        self.__commands__.update({command.name: command})
-
-    def remove_command(self, command):
-        self.__commands__.pop(command.name, None)
-
-    def start(self):
+    def start_console(self):
         """
         Abstracts Thread initialization away from user.
         :return:
         """
-        thread = threading.Thread(None, self.listen, daemon=True)
+        thread = threading.Thread(None, self._on_console, daemon=True)
         thread.start()
 
 
-def _is_submodule(parent, child):
-    return parent == child or child.startswith(parent + ".")
+class ConsoleClient(guilded.Client, ConsoleMixin):
+    def __init__(
+        self,
+        *,
+        internal_server_id: Optional[str] = None,
+        max_messages: Optional[int] = MISSING,
+        features: Optional[ClientFeatures] = None,
+        **options,
+    ):
+        guilded.Client.__init__(
+            self,
+            internal_server_id=internal_server_id,
+            max_messages=max_messages,
+            features=features,
+            **options,
+        )
+        ConsoleMixin.__init__(self, **options)
 
 
-class Command:
-    """
-    The class every command uses
-    """
-
-    def __init__(self, name, callback, parent=None):
-        self.name = name
-        self.__callback__: type = callback
-        self.__subcommands__ = dict()
-        self.parent = parent
-
-    def subcommand(self, **kwargs):
-        """
-        Decorator to add subcommands
-        :param kwargs:
-        :return:
-        """
-        cls = Command
-
-        def decorator(func):
-            name = kwargs.get("name", func.__name__)
-            subcommand = cls(name, func, self)
-            self.add_sub_command(subcommand)
-            return subcommand
-
-        return decorator
-
-    def add_sub_command(self, command):
-        """
-        Adds a subcommand to an existing command
-        :param command:
-        :return:
-        """
-        self.__subcommands__.update({command.name: command})
-
-    def invoke(self, args, loop: asyncio.AbstractEventLoop = None):
-        """
-        Invokes command callback.
-        :param args:
-        :param loop:
-        :return:
-        """
-        if loop:
-
-            def done_callback(future: Future):
-                error = future.exception()
-                if error:
-                    traceback.print_tb(error.__traceback__)
-
-            fut = asyncio.run_coroutine_threadsafe(self.__callback__(*args), loop=loop)
-            fut.add_done_callback(done_callback)
-        else:
-            self.__callback__(*args)
-
-    def convert(self, converter: Converter, args: list):
-        """
-        Convertes the parameters before invoke
-        :param converter:
-        :param args:
-        :return:
-        """
-        args_ = args.copy()
-        signature = inspect.signature(self.__callback__)
-        count = 0
-        for key, value in signature.parameters.items():
-            if value.annotation != inspect.Parameter.empty:
-                converter_ = converter.get_converter(value.annotation)
-                try:
-                    new_param = converter_(args_[count])
-                except IndexError:
-                    continue
-                args_[count] = new_param
-                count += 1
-            else:
-                count += 1
-        return args_
-
-
-def command(**kwargs):
-    """
-    Decorator to register a command
-    :param kwargs:
-    :return:
-    """
-    cls = Command
-
-    def decorator(func):
-        name = kwargs.get("name", func.__name__)
-        return cls(name, func)
-
-    return decorator
-
-
-class Cog:
-    def __new__(cls, *args, **kwargs):
-        commands = []
-        # noinspection PyUnresolvedReferences
-        for base in reversed(cls.__mro__):
-            for elem, value in base.__dict__.items():
-                if isinstance(value, Command):
-                    commands.append(value)
-        cls.commands = commands
-        return super().__new__(cls)
-
-    def load(self, console: Console):
-        """
-        Gets called everytime when the Cog gets loaded from console
-        :param console:
-        :return:
-        """
-        for cmd in self.__class__.commands:
-            cmd.cog = self
-            for c in cmd.__subcommands__.values():
-                c.cog = self
-            console.add_command(cmd)
-
-    def unload(self, console: Console):
-        """
-        Gets called when unloaded from console.
-        Cleans up all commands
-        :param console:
-        :return:
-        """
-        for cmd in self.__class__.commands:
-            console.remove_command(cmd)
+class ConsoleBot(commands.Bot, ConsoleMixin):
+    def __init__(
+        self,
+        command_prefix: Union[
+            Callable[[BotBase, guilded.Message], Union[Iterable[str], str]],
+            Iterable[str],
+            str,
+        ],
+        *,
+        help_command: Optional[HelpCommand] = _default,  # type: ignore
+        description: Optional[str] = None,
+        owner_id: Optional[str] = None,
+        owner_ids: Optional[List[str]] = None,
+        **options: Any,
+    ):
+        # Initialize the BotBase class
+        commands.Bot.__init__(
+            self,
+            command_prefix,
+            help_command=help_command,
+            description=description,
+            owner_id=owner_id,
+            owner_ids=owner_ids,
+            **options,
+        )
+        ConsoleMixin.__init__(self, **options)
