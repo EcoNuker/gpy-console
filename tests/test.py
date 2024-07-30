@@ -55,6 +55,12 @@ async def hey(
     )
 
 
+@bot.command()
+async def start(ctx: commands.Context):
+    if not bot._console_running:
+        bot.start_console()
+
+
 @bot.console_command()
 async def stop(ctx: console_commands.Context):
     # Let's stop the console. This can't be reversed, unless you make a command in Guilded to start it, or until on_ready is called again.

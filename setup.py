@@ -14,7 +14,7 @@ if not version:
 
 setup(
     name="gpy-console",
-    version="0.0.2",
+    version=version,
     description="Execute your bot's commands from the console!",
     long_description=open("README.md", encoding="utf8").read(),
     url="https://github.com/EcoNuker/guilded.py-console",

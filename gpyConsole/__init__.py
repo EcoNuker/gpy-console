@@ -2,7 +2,7 @@
 gpy-console
 """
 
-__version__ = "0.2.2a"
+__version__ = "0.2.3"
 
 try:
     import guilded
